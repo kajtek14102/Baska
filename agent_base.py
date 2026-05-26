@@ -7,18 +7,15 @@ Każdy konkretny agent dziedziczy po Agent i implementuje choose_action().
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from baska_engine import GameState
+from observation import Observation
 
 
 class Agent(ABC):
     """
     Abstrakcyjna klasa bazowa dla wszystkich agentów.
 
-    Parametry:
-        player_id: identyfikator gracza (0-3)
+    Agent widzi TYLKO to co dostaje w Observation - żadnych rąk przeciwników,
+    żadnego podziału na drużyny, żadnych hands_initial.
     """
 
     def __init__(self, player_id: int):
@@ -27,18 +24,15 @@ class Agent(ABC):
     @abstractmethod
     def choose_action(
         self,
-        state: "GameState",
+        obs: Observation,
         legal_moves: list[tuple[str, str]],
-        hands_initial: dict[int, list[tuple[str, str]]],
     ) -> tuple[str, str]:
         """
         Wybierz kartę do zagrania.
 
         Parametry:
-            state:         aktualny stan gry (tylko do odczytu - nie modyfikuj!)
-            legal_moves:   lista kart które można legalnie zagrać
-            hands_initial: początkowy rozkład kart (widoczny dla wszystkich agentów)
-                           przydatny np. do ustalenia drużyn
+            obs:         obserwacja stanu gry (tylko legalne informacje)
+            legal_moves: lista kart które można legalnie zagrać
 
         Zwraca:
             kartę jako krotkę (rank, suit), np. ('A', 'h')

@@ -8,6 +8,7 @@ from __future__ import annotations
 import random
 from baska_engine import deal_cards, GameState, compute_result, card_str
 from agent_base import Agent
+from observation import Observation
 
 
 def run_game(
@@ -46,7 +47,8 @@ def run_game(
 
     while not state.is_terminal():
         legal = state.get_legal_moves()
-        card = agents[state.current_player].choose_action(state, legal, hands_initial)
+        obs = Observation.from_state(state, state.current_player)
+        card = agents[state.current_player].choose_action(obs, legal)
 
         assert card in legal, (
             f"Agent {agents[state.current_player]} zwrócił nielegalny ruch: {card_str(card)}"
@@ -115,21 +117,30 @@ def run_many_games(
 
 
 # ---------------------------------------------------------------------------
-# Przykładowe użycie
+# Gotowe scenariusze - wywołuj z konsoli
 # ---------------------------------------------------------------------------
 
-if __name__ == '__main__':
+def demo_random(n: int = 10000) -> None:
+    """4 losowych agentów, statystyki z n gier."""
     from random_agent import RandomAgent
-
     agents = {i: RandomAgent(i) for i in range(4)}
-
-    # Jedna gra z podglądem
-    # run_game(agents, verbose=True)
-
-    # Seria n gier - statystyki
-    parti = 100000
-    print(f"\n=== Statystyki z {parti} gier (4x RandomAgent) ===")
-    stats = run_many_games(agents, n=parti)
+    print(f"\n=== Statystyki z {n} gier (4x RandomAgent) ===")
+    stats = run_many_games(agents, n=n)
     for p in range(4):
         avg = stats['total_score'][p] / stats['n']
         print(f"  Gracz {p}: średni wynik {avg:+.3f} / partię")
+
+
+def play_vs_random(human_id: int = 0) -> dict:
+    """Człowiek (gracz human_id) kontra 3 losowych agentów."""
+    from random_agent import RandomAgent
+    from human_agent import HumanAgent
+    agents = {i: (HumanAgent(i) if i == human_id else RandomAgent(i)) for i in range(4)}
+    print(f"\n=== Grasz jako Gracz {human_id} przeciwko 3x RandomAgent ===")
+    return run_game(agents, verbose=False)
+
+
+if __name__ == '__main__':
+    # Odkomentuj co chcesz uruchomić:
+    #demo_random(n=10000)
+    play_vs_random(human_id=0)

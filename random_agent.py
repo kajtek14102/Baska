@@ -6,12 +6,9 @@ Agent losowy - wybiera kartę losowo spośród legalnych ruchów.
 
 from __future__ import annotations
 import random
-from typing import TYPE_CHECKING
 
 from agent_base import Agent
-
-if TYPE_CHECKING:
-    from baska_engine import GameState
+from observation import Observation
 
 
 class RandomAgent(Agent):
@@ -30,8 +27,7 @@ class RandomAgent(Agent):
 
     def choose_action(
         self,
-        state: "GameState",
+        obs: Observation,
         legal_moves: list[tuple[str, str]],
-        hands_initial: dict[int, list[tuple[str, str]]],
     ) -> tuple[str, str]:
         return self.rng.choice(legal_moves)
