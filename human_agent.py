@@ -1,24 +1,12 @@
 """
 human_agent.py
-
 Agent sterowany przez człowieka z poziomu konsoli.
 Widzi tylko to co Observation udostępnia - żadnych ukrytych informacji.
 """
-
 from __future__ import annotations
-
 from agent_base import Agent
 from observation import Observation
 from baska_engine import card_str, card_points
-
-
-def _print_trick(trick: tuple) -> None:
-    if not trick:
-        print("  Bitka:   (otwierasz)")
-    else:
-        parts = [f"Gracz {p}: {card_str(c)}" for p, c in trick]
-        pts = sum(card_points(c) for _, c in trick)
-        print(f"  Bitka:   {' | '.join(parts)}  [{pts} pkt na stole]")
 
 
 def _print_scores(scores: dict[int, int]) -> None:
@@ -33,11 +21,25 @@ def _print_played(played: tuple) -> None:
         print("  Zagrane: (brak)")
 
 
+def _print_trick(trick: tuple) -> None:
+    if not trick:
+        print("  Bitka:   (otwierasz)")
+    else:
+        parts = [f"Gracz {p}: {card_str(c)}" for p, c in trick]
+        pts = sum(card_points(c) for _, c in trick)
+        print(f"  Bitka:   {' | '.join(parts)}  [{pts} pkt na stole]")
+
+
 class HumanAgent(Agent):
     """
     Agent który pyta gracza o ruch przez konsolę.
-    Wyświetla tylko informacje dostępne w Observation.
+    Widzi tylko informacje dostępne w Observation.
+    Zapamiętuje poprzedni stan żeby pokazać wynik zakończonej bitki.
     """
+
+    def __init__(self, player_id: int):
+        super().__init__(player_id)
+        self._prev_tricks_played: int = 0
 
     def choose_action(
         self,
@@ -45,6 +47,24 @@ class HumanAgent(Agent):
         legal_moves: list[tuple[str, str]],
     ) -> tuple[str, str]:
 
+        # Jeśli zakończyła się bitka od ostatniego naszego ruchu - pokaż ją
+        if obs.tricks_played > self._prev_tricks_played:
+            end = obs.tricks_played * 4
+            trick_cards = obs.played_cards[end-4:end]
+            pts = sum(card_points(c) for c in trick_cards)
+            played_str = '  '.join(card_str(c) for c in trick_cards)
+            print()
+            print(f"{'═'*52}")
+            print(f"  ✓ Bitka {obs.tricks_played} zakończona:")
+            print(f"    {played_str}  [{pts} pkt]")
+            print(f"  Bitkę wygrał Gracz {obs.trick_leader}")
+            _print_scores(obs.scores_dict)
+            print(f"{'═'*52}")
+
+        # Zapamiętaj liczbę ukończonych bitek
+        self._prev_tricks_played = obs.tricks_played
+
+        # Normalny prompt
         print()
         print(f"{'─'*52}")
         print(f"  Bitka {obs.tricks_played + 1}/4  |  Twój ruch, Gracz {obs.player_id}")
