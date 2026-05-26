@@ -135,17 +135,16 @@ def play_vs_random(human_id: int = 0) -> dict:
     """Człowiek (gracz human_id) kontra 3 losowych agentów."""
     from random_agent import RandomAgent
     from human_agent import HumanAgent
-    agents = {i: (HumanAgent(i) if i == human_id else RandomAgent(i)) for i in range(4)}
+    human = HumanAgent(human_id)
+    agents = {i: (human if i == human_id else RandomAgent(i)) for i in range(4)}
     print(f"\n=== Grasz jako Gracz {human_id} przeciwko 3x RandomAgent ===")
     result = run_game(agents, verbose=False)
-    print()
-    print(f"{'═'*52}")
-    print(f"  KONIEC GRY")
+    winner_team = 'Starzy' if result['starzy'] == result['winners'] else 'Młodzi'
     score = result['score']
-    print(f"  Punkty:    {' | '.join(f'Gracz {p}: {score[p]:+d}' for p in range(4))}")
-    print(f"  Zwycięzcy: Gracze {result['winners']}")
-    print(f"  Kategoria: {result['category']}")
-    print(f"{'═'*52}")
+    print(f"  Starzy (gracze {result['starzy']}): {result['pts_starzy']} pkt")
+    print(f"  Młodzi (gracze {result['mlodzi']}): {result['pts_mlodzi']} pkt")
+    print(f"  Wygrali: {winner_team}  |  Kategoria: {result['category']}")
+    print(f"  Wynik końcowy: { ' | '.join(f'Gracz {p}: {score[p]:+d}' for p in range(4))}")
     return result
 
 
