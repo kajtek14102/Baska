@@ -1,0 +1,3 @@
+Printy: przebieg partii = GameListener / ConsoleNarrator (game_events.py).
+HumanAgent tylko UI tury (ręka, legalne, bieżąca bitka, h/p).
+Trening: run_game bez listeners — cicha ścieżka.

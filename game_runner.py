@@ -6,74 +6,106 @@ Uruchamia pojedynczą grę lub serię gier z dowolnymi agentami.
 
 from __future__ import annotations
 import random
-from baska_engine import deal_cards, GameState, compute_result, card_str
+from typing import Sequence
+
+from baska_engine import (
+    deal_cards,
+    GameState,
+    compute_result,
+    card_str,
+    determine_teams,
+)
 from agent_base import Agent
 from observation import Observation
+from game_events import (
+    GameListener,
+    ConsoleNarrator,
+    DealEvent,
+    PlayEvent,
+    TrickEndEvent,
+    GameEndEvent,
+    SeriesGameStartEvent,
+    notify,
+)
+
+
+def _resolve_listeners(
+    listeners: Sequence[GameListener] | None,
+    verbose: bool,
+) -> tuple[GameListener, ...]:
+    """Pusta krotka = cicha ścieżka (trening). verbose dokłada ConsoleNarrator."""
+    resolved: list[GameListener] = list(listeners) if listeners else []
+    if verbose:
+        resolved.append(ConsoleNarrator(reveal_private=True))
+    return tuple(resolved)
 
 
 def run_game(
     agents: dict[int, Agent],
     verbose: bool = False,
+    listeners: Sequence[GameListener] | None = None,
 ) -> dict:
     """
     Rozgrywa jedną partię Baśki z podanymi agentami.
 
     Parametry:
-        agents:  słownik {player_id: Agent} dla graczy 0-3
-        verbose: czy drukować przebieg gry
+        agents:    słownik {player_id: Agent} dla graczy 0-3
+        verbose:   True → dodaje ConsoleNarrator (reveal_private=True)
+        listeners: opcjonalne listenery zdarzeń; None / [] = zero narzutu
 
     Zwraca:
-        słownik wynikowy z compute_result() zawierający m.in.:
-          'score'      - {player_id: wynik} (suma zerowa)
-          'winners'    - lista zwycięskich player_id
-          'pts_starzy' / 'pts_mlodzi'
-          'category'   - 'z_wyjsciem' / 'bez_wyjscia' / 'bez_bitki'
+        słownik wynikowy z compute_result()
     """
     assert set(agents.keys()) == {0, 1, 2, 3}, "Wymagani agenci dla graczy 0-3"
+
+    ls = _resolve_listeners(listeners, verbose)
 
     hands = deal_cards()
     hands_initial = {p: list(h) for p, h in hands.items()}
     first_player = random.randint(0, 3)
     state = GameState(hands=hands, current_player=first_player, trick_leader=first_player)
 
-    if verbose:
-        print("=== Rozdanie ===")
-        for p, h in hands.items():
-            print(f"  Gracz {p} ({agents[p]}): {[card_str(c) for c in h]}")
-        starzy = [p for p, h in hands_initial.items()
-                  if any(c in {('Q','c'),('Q','s')} for c in h)]
-        mlodzi = [p for p in range(4) if p not in starzy]
-        print(f"\n  Starzy: {starzy}  |  Młodzi: {mlodzi}\n")
+    if ls:
+        starzy, mlodzi = determine_teams(hands_initial)
+        notify(ls, "on_deal", DealEvent(
+            hands={p: tuple(h) for p, h in hands_initial.items()},
+            starzy=tuple(starzy),
+            mlodzi=tuple(mlodzi),
+            first_player=first_player,
+            agent_labels={p: str(agents[p]) for p in range(4)},
+        ))
 
     while not state.is_terminal():
         legal = state.get_legal_moves()
         obs = Observation.from_state(state, state.current_player)
-        card = agents[state.current_player].choose_action(obs, legal)
+        player = state.current_player
+        card = agents[player].choose_action(obs, legal)
 
         assert card in legal, (
-            f"Agent {agents[state.current_player]} zwrócił nielegalny ruch: {card_str(card)}"
+            f"Agent {agents[player]} zwrócił nielegalny ruch: {card_str(card)}"
         )
 
-        if verbose:
-            trick_num = state.tricks_played + 1
-            pos = len(state.current_trick) + 1
-            print(f"  Bitka {trick_num}, poz. {pos}: "
-                  f"Gracz {state.current_player} gra {card_str(card)}")
+        if ls:
+            notify(ls, "on_play", PlayEvent(
+                player_id=player,
+                card=card,
+                trick_num=state.tricks_played + 1,
+                position=len(state.current_trick) + 1,
+            ))
 
         state = state.apply_move(card)
 
-        if verbose and state.tricks_played > 0 and not state.current_trick:
-            print(f"  → Bitkę wygrywa Gracz {state.trick_leader} "
-                  f"| punkty: {dict(state.scores)}\n")
+        if ls and state.tricks_played > 0 and not state.current_trick:
+            notify(ls, "on_trick_end", TrickEndEvent(
+                trick_num=state.tricks_played,
+                winner=state.trick_leader,
+                scores=dict(state.scores),
+            ))
 
     result = compute_result(state, hands_initial)
 
-    if verbose:
-        print("=== Wynik ===")
-        print(f"  Starzy {result['starzy']}: {result['pts_starzy']} pkt")
-        print(f"  Młodzi {result['mlodzi']}: {result['pts_mlodzi']} pkt")
-        print(f"  Zwycięzcy: {result['winners']}  |  Kategoria: {result['category']}")
-        print(f"  Score: {result['score']}")
+    if ls:
+        notify(ls, "on_game_end", GameEndEvent(result=result))
 
     return result
 
@@ -82,6 +114,7 @@ def run_many_games(
     agents: dict[int, Agent],
     n: int,
     verbose: bool = False,
+    listeners: Sequence[GameListener] | None = None,
 ) -> dict:
     """
     Rozgrywa n partii i zbiera statystyki.
@@ -92,27 +125,30 @@ def run_many_games(
         'wins'          - {player_id: liczba wygranych gier}
         'n'             - liczba rozegranych gier
     """
+    ls = _resolve_listeners(listeners, verbose)
     results = []
     total_score = {p: 0 for p in range(4)}
     wins = {p: 0 for p in range(4)}
 
     for i in range(n):
-        if verbose:
-            print(f"\n{'='*40}")
-            print(f"  GRA {i+1}/{n}")
-            print(f"{'='*40}")
-        r = run_game(agents, verbose=verbose)
+        if ls:
+            notify(ls, "on_series_game_start", SeriesGameStartEvent(
+                game_index=i + 1,
+                n=n,
+            ))
+        # verbose już wciągnięte do ls — nie przekazuj ponownie
+        r = run_game(agents, verbose=False, listeners=ls if ls else None)
         results.append(r)
         for p in range(4):
-            total_score[p] += r['score'][p]
-        for p in r['winners']:
+            total_score[p] += r["score"][p]
+        for p in r["winners"]:
             wins[p] += 1
 
     return {
-        'results': results,
-        'total_score': total_score,
-        'wins': wins,
-        'n': n,
+        "results": results,
+        "total_score": total_score,
+        "wins": wins,
+        "n": n,
     }
 
 
@@ -127,7 +163,7 @@ def demo_random(n: int = 10000) -> None:
     print(f"\n=== Statystyki z {n} gier (4x RandomAgent) ===")
     stats = run_many_games(agents, n=n)
     for p in range(4):
-        avg = stats['total_score'][p] / stats['n']
+        avg = stats["total_score"][p] / stats["n"]
         print(f"  Gracz {p}: średni wynik {avg:+.3f} / partię")
 
 
@@ -138,17 +174,14 @@ def play_vs_random(human_id: int = 0) -> dict:
     human = HumanAgent(human_id)
     agents = {i: (human if i == human_id else RandomAgent(i)) for i in range(4)}
     print(f"\n=== Grasz jako Gracz {human_id} przeciwko 3x RandomAgent ===")
-    result = run_game(agents, verbose=False)
-    winner_team = 'Starzy' if result['starzy'] == result['winners'] else 'Młodzi'
-    score = result['score']
-    print(f"  Starzy (gracze {result['starzy']}): {result['pts_starzy']} pkt")
-    print(f"  Młodzi (gracze {result['mlodzi']}): {result['pts_mlodzi']} pkt")
-    print(f"  Wygrali: {winner_team}  |  Kategoria: {result['category']}")
-    print(f"  Wynik końcowy: { ' | '.join(f'Gracz {p}: {score[p]:+d}' for p in range(4))}")
-    return result
+    # Narrator bez rąk/drużyn; HumanAgent pokazuje tylko rękę / legalne / h|p
+    return run_game(
+        agents,
+        listeners=[ConsoleNarrator(reveal_private=False)],
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Odkomentuj co chcesz uruchomić:
-    #demo_random(n=10000)
+    # demo_random(n=10000)
     play_vs_random(human_id=0)
