@@ -15,7 +15,8 @@ Uproszczona Baśka (16 kart, 4 gracze, 4 bitki). Cel długoterminowy: uczenie mo
 | `beat_high_dump_low_agent.py` | BeatHighDumpLowAgent — przebija najmocniejszą, zrzuca/lead najsłabszą |
 | `human_agent.py` | konsolowe UI tury: ręka, legalne, bieżąca bitka, h/p — bez narracji partii |
 | `game_events.py` | Deal/Play/TrickEnd/GameEnd + GameListener + ConsoleNarrator |
-| `game_runner.py` | run_game, run_many_games, demo_*, make_agents |
+| `game_runner.py` | run_game, run_many_games, make_agents, list_agent_names, play_vs_random |
+| `runner_gui.py` | tkinter: 4 dropdowny agentów, n gier, żywe średnie, pasek postępu |
 | `test_engine.py` | ręczne testy reguł (nie pytest) |
 
 ## Architektura printów
@@ -27,15 +28,15 @@ Uproszczona Baśka (16 kart, 4 gracze, 4 bitki). Cel długoterminowy: uczenie mo
 
 ## Uruchamianie matchupów
 
-```python
-from game_runner import demo_agents, demo_always_lowest_vs_random, make_agents
+GUI (`runner_gui.py`): 4 dropdowny z `list_agent_names()`, liczba gier, żywe średnie, pasek postępu.
 
-demo_agents(["AlwaysLowest", "Random", "Random", "Random"], n=10_000)
-demo_always_lowest_vs_random(n=10_000)   # też AlwaysHighest analogicznie
-# nazwy: Random, AlwaysHighest, AlwaysLowest, BeatHighDumpLow (+ sufiks Agent, case-insensitive)
+```
+C:\Users\kajte\AppData\Local\spyder-6\python.exe runner_gui.py
 ```
 
-`run_many_games`: `progress=True` ≈ 100 update'ów; `keep_results=False` domyślnie (nie zwracaj listy 1e6 wyników — puchnie REPL). Demo zwraca `{avg_score, wins, n}`.
+Z kodu: `make_agents` + `run_many_games`. `on_progress(done, n, stats)` ≈ 100 ticków (GUI). `progress=True` to samo na stderr. `keep_results=False` domyślnie (nie zwracaj listy 1e6 wyników — puchnie REPL).
+
+`play_vs_random`: jedna partia człowiek vs 3× Random (konsola).
 
 ## Python na tej maszynie
 
@@ -45,4 +46,4 @@ Konsola cp1250 — unikaj znaków typu ◄ w printach demo.
 
 ## Świadomie jeszcze nie ma
 
-Sieci / RL, silniejszej heurystyki, GUI, pytest. Hierarchia siły kart = TRUMP_RANK, potem FELE_RANK (fele słabsze od wszystkich trumfów).
+Sieci / RL, silniejszej heurystyki, pytest. Hierarchia siły kart = TRUMP_RANK, potem FELE_RANK (fele słabsze od wszystkich trumfów).

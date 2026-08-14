@@ -6,6 +6,7 @@ Uruchamia pojedynczą grę lub serię gier z dowolnymi agentami.
 
 from __future__ import annotations
 import random
+from collections.abc import Callable
 from typing import Sequence
 
 from baska_engine import (
@@ -117,6 +118,7 @@ def run_many_games(
     listeners: Sequence[GameListener] | None = None,
     keep_results: bool = False,
     progress: bool = False,
+    on_progress: Callable[[int, int, dict], None] | None = None,
 ) -> dict:
     """
     Rozgrywa n partii i zbiera statystyki.
@@ -129,13 +131,15 @@ def run_many_games(
         'results'       - tylko gdy keep_results=True (lista wyników każdej gry)
 
     progress=True → ~100 aktualizacji na stderr (koszt znikomy nawet przy milionie gier).
+    on_progress(done, n, stats) → te same ~100 ticków; stats ma avg_score / wins / total_score
+    (średnie liczone z gier do tej pory, nie z pełnego n).
     """
     ls = _resolve_listeners(listeners, verbose)
     results = [] if keep_results else None
     total_score = {p: 0 for p in range(4)}
     wins = {p: 0 for p in range(4)}
-    # co najwyżej ~100 printów; przy małych n — co grę
-    report_every = max(1, n // 100) if progress else 0
+    # co najwyżej ~100 printów / callbacków; przy małych n — co grę
+    report_every = max(1, n // 100) if (progress or on_progress) else 0
 
     for i in range(n):
         if ls:
@@ -152,11 +156,19 @@ def run_many_games(
         for p in r["winners"]:
             wins[p] += 1
 
-        if report_every and ((i + 1) % report_every == 0 or i + 1 == n):
-            pct = 100.0 * (i + 1) / n
-            print(f"\r  postęp: {i + 1}/{n} ({pct:.0f}%)", end="", flush=True)
+        if report_every and ((i + 1) % report_every == 0 or i + 1 == n or i == 0):
+            done = i + 1
+            if progress:
+                pct = 100.0 * done / n
+                print(f"\r  postęp: {done}/{n} ({pct:.0f}%)", end="", flush=True)
+            if on_progress:
+                on_progress(done, n, {
+                    "avg_score": {p: total_score[p] / done for p in range(4)},
+                    "total_score": dict(total_score),
+                    "wins": dict(wins),
+                })
 
-    if report_every:
+    if progress and report_every:
         print()
 
     out = {
@@ -171,10 +183,9 @@ def run_many_games(
 
 
 # ---------------------------------------------------------------------------
-# Gotowe scenariusze - wywołuj z konsoli
+# Rejestr agentów (bez Human — interaktywny)
 # ---------------------------------------------------------------------------
 
-# Nazwy skrócone i pełne → klasa agenta (bez Human — interaktywny)
 _AGENT_TYPES: dict[str, type] | None = None
 
 
@@ -204,12 +215,18 @@ def _agent_registry() -> dict[str, type]:
     return _AGENT_TYPES
 
 
+def list_agent_names() -> list[str]:
+    """Krótkie nazwy agentów z rejestru (bez Human), posortowane."""
+    return sorted({
+        cls.__name__.removesuffix("Agent")
+        for cls in set(_agent_registry().values())
+    })
+
+
 def make_agents(names: Sequence[str]) -> dict[int, Agent]:
     """
     Tworzy 4 agentów z listy nazw (kolejność = gracze 0..3).
-
-    Akceptowane nazwy m.in.: Random, AlwaysHighest, AlwaysLowest,
-    BeatHighDumpLow (też z sufiksem Agent, niezależnie od wielkości liter).
+    Nazwy z list_agent_names(); też z sufiksem Agent, niezależnie od wielkości liter.
     """
     if len(names) != 4:
         raise ValueError(f"Potrzeba dokładnie 4 nazw agentów, dostano {len(names)}")
@@ -225,78 +242,6 @@ def make_agents(names: Sequence[str]) -> dict[int, Agent]:
     return agents
 
 
-def _print_matchup_stats(
-    stats: dict,
-    labels: Sequence[str],
-) -> None:
-    for p in range(4):
-        avg = stats["avg_score"][p]
-        print(f"  Gracz {p} ({labels[p]}): {avg:+.3f} / rozdanie")
-
-
-def demo_agents(
-    names: Sequence[str],
-    n: int = 10000,
-) -> dict:
-    """
-    Rozgrywa n partii z dowolną czwórką agentów podaną z nazwy.
-
-    Przykład:
-        demo_agents(['AlwaysLowest', 'Random', 'Random', 'Random'], n=5000)
-        demo_agents(['AlwaysHighest', 'AlwaysLowest', 'Random', 'Random'])
-
-    Zwraca zwięzłe statystyki (avg_score, wins, n) — bez listy wszystkich gier.
-    """
-    agents = make_agents(names)
-    labels = [type(agents[i]).__name__ for i in range(4)]
-    print(f"\n=== {n} rozdań ===")
-    for p, label in enumerate(labels):
-        print(f"  {p}: {label}")
-    stats = run_many_games(agents, n=n, progress=True)
-    print("--- średni score / rozdanie ---")
-    _print_matchup_stats(stats, labels)
-    return {
-        "avg_score": stats["avg_score"],
-        "wins": stats["wins"],
-        "n": stats["n"],
-    }
-
-
-def demo_random(n: int = 10000) -> dict:
-    """4 losowych agentów, statystyki z n gier."""
-    return demo_agents(["Random", "Random", "Random", "Random"], n=n)
-
-
-def demo_always_highest_vs_random(
-    n: int = 10000,
-    agent_id: int = 0,
-) -> dict:
-    """AlwaysHighestAgent vs 3x RandomAgent."""
-    names = ["Random"] * 4
-    names[agent_id] = "AlwaysHighest"
-    return demo_agents(names, n=n)
-
-
-def demo_always_lowest_vs_random(
-    n: int = 10000,
-    agent_id: int = 0,
-) -> dict:
-    """AlwaysLowestAgent vs 3x RandomAgent."""
-    names = ["Random"] * 4
-    names[agent_id] = "AlwaysLowest"
-    return demo_agents(names, n=n)
-
-
-def demo_beat_high_dump_low_vs_random(
-    n: int = 10000,
-    agent_id: int = 0,
-) -> dict:
-    """BeatHighDumpLowAgent vs 3x RandomAgent."""
-    names = ["Random"] * 4
-    names[agent_id] = "BeatHighDumpLow"
-    return demo_agents(names, n=n)
-
-
 def play_vs_random(human_id: int = 0) -> dict:
     """Człowiek (gracz human_id) kontra 3 losowych agentów."""
     from random_agent import RandomAgent
@@ -304,16 +249,8 @@ def play_vs_random(human_id: int = 0) -> dict:
     human = HumanAgent(human_id)
     agents = {i: (human if i == human_id else RandomAgent(i)) for i in range(4)}
     print(f"\n=== Grasz jako Gracz {human_id} przeciwko 3x RandomAgent ===")
-    # Narrator bez rąk/drużyn; HumanAgent pokazuje tylko rękę / legalne / h|p
     return run_game(
         agents,
         listeners=[ConsoleNarrator(reveal_private=False)],
     )
-
-
-if __name__ == "__main__":
-    # Odkomentuj co chcesz uruchomić:
-    # demo_random(n=10000)
-    # play_vs_random(human_id=0)
-    pass
 
