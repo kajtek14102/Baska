@@ -12,6 +12,7 @@ Uproszczona Baśka (16 kart, 4 gracze, 4 bitki). Cel długoterminowy: uczenie mo
 | `random_agent.py` | RandomAgent |
 | `always_highest_agent.py` | AlwaysHighestAgent + `card_strength_key` (min = silniejsza) |
 | `always_lowest_agent.py` | AlwaysLowestAgent (max po tym samym kluczu) |
+| `beat_high_dump_low_agent.py` | BeatHighDumpLowAgent — przebija najmocniejszą, zrzuca/lead najsłabszą |
 | `human_agent.py` | konsolowe UI tury: ręka, legalne, bieżąca bitka, h/p — bez narracji partii |
 | `game_events.py` | Deal/Play/TrickEnd/GameEnd + GameListener + ConsoleNarrator |
 | `game_runner.py` | run_game, run_many_games, demo_*, make_agents |
@@ -31,7 +32,7 @@ from game_runner import demo_agents, demo_always_lowest_vs_random, make_agents
 
 demo_agents(["AlwaysLowest", "Random", "Random", "Random"], n=10_000)
 demo_always_lowest_vs_random(n=10_000)   # też AlwaysHighest analogicznie
-# nazwy: Random, AlwaysHighest, AlwaysLowest (+ sufiks Agent, case-insensitive)
+# nazwy: Random, AlwaysHighest, AlwaysLowest, BeatHighDumpLow (+ sufiks Agent, case-insensitive)
 ```
 
 `run_many_games`: `progress=True` ≈ 100 update'ów; `keep_results=False` domyślnie (nie zwracaj listy 1e6 wyników — puchnie REPL). Demo zwraca `{avg_score, wins, n}`.

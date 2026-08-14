@@ -184,8 +184,14 @@ def _agent_registry() -> dict[str, type]:
         from random_agent import RandomAgent
         from always_highest_agent import AlwaysHighestAgent
         from always_lowest_agent import AlwaysLowestAgent
+        from beat_high_dump_low_agent import BeatHighDumpLowAgent
 
-        classes = (RandomAgent, AlwaysHighestAgent, AlwaysLowestAgent)
+        classes = (
+            RandomAgent,
+            AlwaysHighestAgent,
+            AlwaysLowestAgent,
+            BeatHighDumpLowAgent,
+        )
         reg: dict[str, type] = {}
         for cls in classes:
             reg[cls.__name__] = cls
@@ -202,8 +208,8 @@ def make_agents(names: Sequence[str]) -> dict[int, Agent]:
     """
     Tworzy 4 agentów z listy nazw (kolejność = gracze 0..3).
 
-    Akceptowane nazwy m.in.: Random, AlwaysHighest, AlwaysLowest
-    (też z sufiksem Agent, niezależnie od wielkości liter).
+    Akceptowane nazwy m.in.: Random, AlwaysHighest, AlwaysLowest,
+    BeatHighDumpLow (też z sufiksem Agent, niezależnie od wielkości liter).
     """
     if len(names) != 4:
         raise ValueError(f"Potrzeba dokładnie 4 nazw agentów, dostano {len(names)}")
@@ -278,6 +284,16 @@ def demo_always_lowest_vs_random(
     """AlwaysLowestAgent vs 3x RandomAgent."""
     names = ["Random"] * 4
     names[agent_id] = "AlwaysLowest"
+    return demo_agents(names, n=n)
+
+
+def demo_beat_high_dump_low_vs_random(
+    n: int = 10000,
+    agent_id: int = 0,
+) -> dict:
+    """BeatHighDumpLowAgent vs 3x RandomAgent."""
+    names = ["Random"] * 4
+    names[agent_id] = "BeatHighDumpLow"
     return demo_agents(names, n=n)
 
 
