@@ -12,6 +12,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from game_runner import list_agent_names, make_agents, run_many_games
+from run_log import RunLog
 
 PIMC_SAMPLE_CHOICES = ("32", "64", "128", "256", "512", "1024")
 
@@ -27,8 +28,8 @@ def main() -> None:
 
     root = tk.Tk()
     root.title("Baśka runner")
-    root.minsize(420, 260)
-    root.geometry("620x340")
+    root.minsize(480, 240)
+    root.geometry("560x280")
 
     q: queue.Queue = queue.Queue()
     running = {"on": False}
@@ -40,7 +41,6 @@ def main() -> None:
     sample_boxes: list[ttk.Combobox] = []
     avg_labels: list[tk.Label] = []
     font_widgets: list[tk.Widget] = []
-    menus: list[tk.Menu] = []
 
     def add_font(w: tk.Widget) -> tk.Widget:
         font_widgets.append(w)
@@ -51,52 +51,65 @@ def main() -> None:
             on = _is_pimc_name(player_vars[i].get())
             box.configure(state="normal" if on else "disabled")
 
+    root.columnconfigure(1, weight=1)
+
     for i in range(4):
-        row = tk.Frame(root)
-        row.pack(fill="x", padx=6, pady=2)
-        add_font(tk.Label(row, text=f"Gracz {i}")).pack(side="left")
+        add_font(tk.Label(root, text=f"Gracz {i}")).grid(
+            row=i, column=0, sticky="w", padx=(10, 6), pady=3,
+        )
         var = tk.StringVar(value=default)
-        om = add_font(tk.OptionMenu(row, var, *agent_names, command=sync_sample_states))
-        om.pack(side="left", fill="x", expand=True, padx=6)
-        menus.append(om["menu"])
-        avg = add_font(tk.Label(row, text="—", width=10, anchor="e"))
-        avg.pack(side="right")
+        agent_box = ttk.Combobox(
+            root,
+            textvariable=var,
+            values=agent_names,
+            state="readonly",
+        )
+        agent_box.grid(row=i, column=1, sticky="ew", padx=4, pady=3)
+        agent_box.bind("<<ComboboxSelected>>", sync_sample_states)
+        add_font(agent_box)
+
         svar = tk.StringVar(value="128")
-        box = ttk.Combobox(
-            row,
+        samp = ttk.Combobox(
+            root,
             textvariable=svar,
             values=PIMC_SAMPLE_CHOICES,
             width=6,
         )
-        box.pack(side="right", padx=4)
-        add_font(box)
-        add_font(tk.Label(row, text="n")).pack(side="right")
+        samp.grid(row=i, column=2, padx=4, pady=3)
+        add_font(samp)
+
+        avg = add_font(tk.Label(root, text="—", width=8, anchor="e"))
+        avg.grid(row=i, column=3, sticky="e", padx=(4, 10), pady=3)
+
         player_vars.append(var)
         sample_vars.append(svar)
-        sample_boxes.append(box)
+        sample_boxes.append(samp)
         avg_labels.append(avg)
 
     sync_sample_states()
 
-    add_font(tk.Label(
-        root,
-        text="n — próbki PIMC (wpisz albo wybierz). Oracle zna wszystkie ręce.",
-        anchor="w",
-    )).pack(fill="x", padx=6, pady=(4, 0))
-
     n_row = tk.Frame(root)
-    n_row.pack(fill="x", padx=6, pady=2)
-    add_font(tk.Label(n_row, text="Liczba gier")).pack(side="left")
+    n_row.grid(row=4, column=0, columnspan=4, sticky="ew", padx=10, pady=(8, 2))
+    n_row.columnconfigure(1, weight=1)
+    add_font(tk.Label(n_row, text="Liczba gier")).grid(row=0, column=0, sticky="w")
     n_var = tk.StringVar(value="10000")
-    add_font(tk.Entry(n_row, textvariable=n_var)).pack(
-        side="left", fill="x", expand=True, padx=6
+    add_font(tk.Entry(n_row, textvariable=n_var)).grid(
+        row=0, column=1, sticky="ew", padx=8,
     )
+    save_var = tk.BooleanVar(value=True)
+    add_font(tk.Checkbutton(
+        n_row,
+        text="Save output",
+        variable=save_var,
+        onvalue=True,
+        offvalue=False,
+    )).grid(row=0, column=2, sticky="e")
 
     status = add_font(tk.Label(root, text="", anchor="w"))
-    status.pack(fill="x", padx=6)
+    status.grid(row=5, column=0, columnspan=4, sticky="ew", padx=10)
 
     bar = ttk.Progressbar(root, mode="determinate")
-    bar.pack(fill="x", padx=6, pady=4)
+    bar.grid(row=6, column=0, columnspan=4, sticky="ew", padx=10, pady=4)
 
     def set_running(on: bool) -> None:
         running["on"] = on
@@ -132,6 +145,8 @@ def main() -> None:
                 return
             samples.append(ns)
 
+        save = bool(save_var.get())
+
         for lbl in avg_labels:
             lbl.config(text="—")
         bar.config(maximum=n, value=0)
@@ -139,21 +154,45 @@ def main() -> None:
         set_running(True)
 
         def worker() -> None:
+            log: RunLog | None = None
             try:
                 agents = make_agents(names, pimc_samples=samples)
+                if save:
+                    log = RunLog.create(
+                        agent_names=names,
+                        pimc_samples=samples,
+                        n=n,
+                        agent_reprs=[repr(agents[p]) for p in range(4)],
+                    )
 
                 def on_progress(done: int, total: int, stats: dict) -> None:
                     q.put(("progress", done, total, stats["avg_score"]))
 
-                run_many_games(agents, n=n, on_progress=on_progress)
+                def on_game(game_index: int, result: dict) -> None:
+                    if log is not None:
+                        log.write_game(game_index, result)
+
+                stats = run_many_games(
+                    agents, n=n, on_progress=on_progress, on_game=on_game if save else None,
+                )
+                if log is not None:
+                    log.write_summary(stats, played=stats["n"])
                 q.put(("done",))
             except Exception as e:
+                if log is not None:
+                    try:
+                        log.write_error(str(e))
+                    except Exception:
+                        pass
                 q.put(("error", str(e)))
+            finally:
+                if log is not None:
+                    log.close()
 
         threading.Thread(target=worker, daemon=True).start()
 
     start_btn = add_font(tk.Button(root, text="Start", command=start))
-    start_btn.pack(fill="x", padx=6, pady=6)
+    start_btn.grid(row=7, column=0, columnspan=4, sticky="ew", padx=10, pady=(4, 10))
 
     def apply_font(px: int) -> None:
         font = ("Segoe UI", px)
@@ -162,8 +201,6 @@ def main() -> None:
                 w.configure(font=font)
             except tk.TclError:
                 pass
-        for menu in menus:
-            menu.configure(font=font)
         style.configure("TProgressbar", thickness=max(10, int(px * 1.8)))
 
     def on_resize(event: tk.Event) -> None:

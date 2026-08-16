@@ -126,6 +126,7 @@ def run_many_games(
     keep_results: bool = False,
     progress: bool = False,
     on_progress: Callable[[int, int, dict], None] | None = None,
+    on_game: Callable[[int, dict], None] | None = None,
 ) -> dict:
     """
     Rozgrywa n partii i zbiera statystyki.
@@ -140,6 +141,7 @@ def run_many_games(
     progress=True → ~100 aktualizacji na stderr (koszt znikomy nawet przy milionie gier).
     on_progress(done, n, stats) → te same ~100 ticków; stats ma avg_score / wins / total_score
     (średnie liczone z gier do tej pory, nie z pełnego n).
+    on_game(game_index, result) → po każdej partii (game_index od 1); do zapisu na dysk.
     """
     ls = _resolve_listeners(listeners, verbose)
     results = [] if keep_results else None
@@ -158,6 +160,8 @@ def run_many_games(
         r = run_game(agents, verbose=False, listeners=ls if ls else None)
         if results is not None:
             results.append(r)
+        if on_game:
+            on_game(i + 1, r)
         for p in range(4):
             total_score[p] += r["score"][p]
         for p in r["winners"]:
