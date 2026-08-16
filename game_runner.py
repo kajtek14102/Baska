@@ -142,6 +142,9 @@ def run_many_games(
     on_progress(done, n, stats) → te same ~100 ticków; stats ma avg_score / wins / total_score
     (średnie liczone z gier do tej pory, nie z pełnego n).
     on_game(game_index, result) → po każdej partii (game_index od 1); do zapisu na dysk.
+
+    Każda partia tasuje obsadę stołu (kto koło kogo). first_player i tak jest losowy.
+    Statystyki i log są w kolejności oryginalnych kluczy agents (Gracz 0..3 z GUI).
     """
     ls = _resolve_listeners(listeners, verbose)
     results = [] if keep_results else None
@@ -156,8 +159,22 @@ def run_many_games(
                 game_index=i + 1,
                 n=n,
             ))
-        # verbose już wciągnięte do ls — nie przekazuj ponownie
-        r = run_game(agents, verbose=False, listeners=ls if ls else None)
+        order = [0, 1, 2, 3]
+        random.shuffle(order)
+        seated = {seat: agents[order[seat]] for seat in range(4)}
+        for seat, ag in seated.items():
+            ag.player_id = seat
+        try:
+            r = run_game(seated, verbose=False, listeners=ls if ls else None)
+        finally:
+            for gui, ag in agents.items():
+                ag.player_id = gui
+        # silnik liczy po miejscach; GUI i log chcą Gracza 0..3
+        r["score"] = {order[s]: r["score"][s] for s in range(4)}
+        r["winners"] = [order[s] for s in r["winners"]]
+        r["starzy"] = [order[s] for s in r["starzy"]]
+        r["mlodzi"] = [order[s] for s in r["mlodzi"]]
+        r["table"] = order
         if results is not None:
             results.append(r)
         if on_game:

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence, TextIO
@@ -46,6 +45,7 @@ def game_record(game_index: int, result: dict) -> dict[str, Any]:
         "pts_mlodzi": result["pts_mlodzi"],
         "category": result["category"],
         "base_value": result["base_value"],
+        "table": list(result["table"]) if "table" in result else [0, 1, 2, 3],
     }
 
 
@@ -53,7 +53,7 @@ class RunLog:
     def __init__(self, path: Path, fh: TextIO):
         self.path = path
         self._fh = fh
-        self._t0 = time.perf_counter()
+        self._started = datetime.now()
 
     @classmethod
     def create(
@@ -69,7 +69,7 @@ class RunLog:
         log = cls(path, fh)
         log._write({
             "type": "meta",
-            "started": datetime.now().isoformat(timespec="seconds"),
+            "started": log._started.isoformat(timespec="seconds"),
             "n": n,
             "agents": list(agent_names),
             "agent_reprs": list(agent_reprs),
@@ -81,21 +81,25 @@ class RunLog:
         self._write(game_record(game_index, result))
 
     def write_summary(self, stats: dict, played: int) -> None:
+        finished = datetime.now()
+        elapsed_s = (finished - self._started).total_seconds()
         self._write({
             "type": "summary",
-            "finished": datetime.now().isoformat(timespec="seconds"),
+            "finished": finished.isoformat(timespec="seconds"),
             "played": played,
             "avg_score": [stats["avg_score"][p] for p in range(4)],
             "total_score": [stats["total_score"][p] for p in range(4)],
             "wins": [stats["wins"][p] for p in range(4)],
-            "elapsed_s": round(time.perf_counter() - self._t0, 3),
+            "elapsed_s": round(elapsed_s, 3),
+            "s_per_deal": round(elapsed_s / played, 6) if played else None,
         })
 
     def write_error(self, message: str) -> None:
+        elapsed_s = (datetime.now() - self._started).total_seconds()
         self._write({
             "type": "error",
             "message": message,
-            "elapsed_s": round(time.perf_counter() - self._t0, 3),
+            "elapsed_s": round(elapsed_s, 3),
         })
 
     def close(self) -> None:
