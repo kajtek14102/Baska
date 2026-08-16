@@ -16,10 +16,18 @@ class Agent(ABC):
 
     Agent widzi TYLKO to co dostaje w Observation - żadnych rąk przeciwników,
     żadnego podziału na drużyny, żadnych hands_initial.
+
+    Wyjątek: uses_full_state=True (Oracle) — runner podaje cały GameState.
     """
+
+    uses_full_state = False
 
     def __init__(self, player_id: int):
         self.player_id = player_id
+
+    def reset(self) -> None:
+        """Nowa partia. Nadpisz, jeśli agent trzyma stan między turami."""
+        return None
 
     @abstractmethod
     def choose_action(

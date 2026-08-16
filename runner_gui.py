@@ -13,6 +13,13 @@ from tkinter import ttk
 
 from game_runner import list_agent_names, make_agents, run_many_games
 
+PIMC_SAMPLE_CHOICES = ("32", "64", "128", "256", "512", "1024")
+
+
+def _is_pimc_name(name: str) -> bool:
+    base = name.strip().replace(":", "-").split("-")[0]
+    return base.lower().removesuffix("agent") == "pimc"
+
 
 def main() -> None:
     agent_names = list_agent_names()
@@ -20,8 +27,8 @@ def main() -> None:
 
     root = tk.Tk()
     root.title("Baśka runner")
-    root.minsize(360, 220)
-    root.geometry("520x300")
+    root.minsize(420, 260)
+    root.geometry("620x340")
 
     q: queue.Queue = queue.Queue()
     running = {"on": False}
@@ -29,6 +36,8 @@ def main() -> None:
     style = ttk.Style(root)
 
     player_vars: list[tk.StringVar] = []
+    sample_vars: list[tk.StringVar] = []
+    sample_boxes: list[ttk.Combobox] = []
     avg_labels: list[tk.Label] = []
     font_widgets: list[tk.Widget] = []
     menus: list[tk.Menu] = []
@@ -37,18 +46,43 @@ def main() -> None:
         font_widgets.append(w)
         return w
 
+    def sync_sample_states(*_args) -> None:
+        for i, box in enumerate(sample_boxes):
+            on = _is_pimc_name(player_vars[i].get())
+            box.configure(state="normal" if on else "disabled")
+
     for i in range(4):
         row = tk.Frame(root)
         row.pack(fill="x", padx=6, pady=2)
         add_font(tk.Label(row, text=f"Gracz {i}")).pack(side="left")
         var = tk.StringVar(value=default)
-        om = add_font(tk.OptionMenu(row, var, *agent_names))
+        om = add_font(tk.OptionMenu(row, var, *agent_names, command=sync_sample_states))
         om.pack(side="left", fill="x", expand=True, padx=6)
         menus.append(om["menu"])
         avg = add_font(tk.Label(row, text="—", width=10, anchor="e"))
         avg.pack(side="right")
+        svar = tk.StringVar(value="128")
+        box = ttk.Combobox(
+            row,
+            textvariable=svar,
+            values=PIMC_SAMPLE_CHOICES,
+            width=6,
+        )
+        box.pack(side="right", padx=4)
+        add_font(box)
+        add_font(tk.Label(row, text="n")).pack(side="right")
         player_vars.append(var)
+        sample_vars.append(svar)
+        sample_boxes.append(box)
         avg_labels.append(avg)
+
+    sync_sample_states()
+
+    add_font(tk.Label(
+        root,
+        text="n — próbki PIMC (wpisz albo wybierz). Oracle zna wszystkie ręce.",
+        anchor="w",
+    )).pack(fill="x", padx=6, pady=(4, 0))
 
     n_row = tk.Frame(root)
     n_row.pack(fill="x", padx=6, pady=2)
@@ -82,6 +116,22 @@ def main() -> None:
             return
 
         names = [v.get() for v in player_vars]
+        samples: list[int] = []
+        for i, name in enumerate(names):
+            if not _is_pimc_name(name):
+                samples.append(128)
+                continue
+            raw_s = sample_vars[i].get().strip().replace("_", "").replace(" ", "")
+            try:
+                ns = int(raw_s)
+            except ValueError:
+                status.config(text=f"Gracz {i}: n PIMC musi być liczbą całkowitą")
+                return
+            if ns < 1:
+                status.config(text=f"Gracz {i}: n PIMC musi być ≥ 1")
+                return
+            samples.append(ns)
+
         for lbl in avg_labels:
             lbl.config(text="—")
         bar.config(maximum=n, value=0)
@@ -90,7 +140,7 @@ def main() -> None:
 
         def worker() -> None:
             try:
-                agents = make_agents(names)
+                agents = make_agents(names, pimc_samples=samples)
 
                 def on_progress(done: int, total: int, stats: dict) -> None:
                     q.put(("progress", done, total, stats["avg_score"]))
@@ -108,7 +158,10 @@ def main() -> None:
     def apply_font(px: int) -> None:
         font = ("Segoe UI", px)
         for w in font_widgets:
-            w.configure(font=font)
+            try:
+                w.configure(font=font)
+            except tk.TclError:
+                pass
         for menu in menus:
             menu.configure(font=font)
         style.configure("TProgressbar", thickness=max(10, int(px * 1.8)))

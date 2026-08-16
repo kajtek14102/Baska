@@ -61,6 +61,9 @@ def run_game(
 
     ls = _resolve_listeners(listeners, verbose)
 
+    for agent in agents.values():
+        agent.reset()
+
     hands = deal_cards()
     hands_initial = {p: list(h) for p, h in hands.items()}
     first_player = random.randint(0, 3)
@@ -78,9 +81,13 @@ def run_game(
 
     while not state.is_terminal():
         legal = state.get_legal_moves()
-        obs = Observation.from_state(state, state.current_player)
         player = state.current_player
-        card = agents[player].choose_action(obs, legal)
+        agent = agents[player]
+        if getattr(agent, "uses_full_state", False):
+            card = agent.choose_from_state(state, hands_initial, legal)
+        else:
+            obs = Observation.from_state(state, player)
+            card = agent.choose_action(obs, legal)
 
         assert card in legal, (
             f"Agent {agents[player]} zwrócił nielegalny ruch: {card_str(card)}"
@@ -196,12 +203,16 @@ def _agent_registry() -> dict[str, type]:
         from always_highest_agent import AlwaysHighestAgent
         from always_lowest_agent import AlwaysLowestAgent
         from beat_high_dump_low_agent import BeatHighDumpLowAgent
+        from pimc_agent import PIMCAgent
+        from oracle_agent import OracleAgent
 
         classes = (
             RandomAgent,
             AlwaysHighestAgent,
             AlwaysLowestAgent,
             BeatHighDumpLowAgent,
+            PIMCAgent,
+            OracleAgent,
         )
         reg: dict[str, type] = {}
         for cls in classes:
@@ -223,22 +234,48 @@ def list_agent_names() -> list[str]:
     })
 
 
-def make_agents(names: Sequence[str]) -> dict[int, Agent]:
+def _parse_agent_name(name: str) -> tuple[str, int | None]:
+    """'PIMC-256' / 'PIMC:64' → ('PIMC', 256). Inaczej (name, None)."""
+    raw = name.strip()
+    for sep in ("-", ":"):
+        if sep not in raw:
+            continue
+        head, tail = raw.rsplit(sep, 1)
+        if head and tail.isdigit() and int(tail) >= 1:
+            return head, int(tail)
+    return raw, None
+
+
+def make_agents(
+    names: Sequence[str],
+    pimc_samples: Sequence[int] | None = None,
+) -> dict[int, Agent]:
     """
     Tworzy 4 agentów z listy nazw (kolejność = gracze 0..3).
     Nazwy z list_agent_names(); też z sufiksem Agent, niezależnie od wielkości liter.
+    PIMC: n_samples z pimc_samples[i], albo z nazwy 'PIMC-128', domyślnie 128.
     """
     if len(names) != 4:
         raise ValueError(f"Potrzeba dokładnie 4 nazw agentów, dostano {len(names)}")
+    if pimc_samples is not None and len(pimc_samples) != 4:
+        raise ValueError("pimc_samples musi mieć 4 elementy")
     reg = _agent_registry()
     agents: dict[int, Agent] = {}
     for i, name in enumerate(names):
-        key = name.strip()
+        key, n_from_name = _parse_agent_name(name)
         cls = reg.get(key) or reg.get(key.lower())
         if cls is None:
             known = ", ".join(sorted({c.__name__ for c in reg.values()}))
             raise ValueError(f"Nieznany agent {name!r}. Znane: {known}")
-        agents[i] = cls(i)
+        extra: dict = {}
+        if cls.__name__ == "PIMCAgent":
+            n = 128
+            if pimc_samples is not None:
+                n = int(pimc_samples[i])
+            elif n_from_name is not None:
+                n = n_from_name
+            extra["n_samples"] = n
+        agents[i] = cls(i, **extra)
     return agents
 
 
