@@ -92,6 +92,8 @@ class RunLog:
             "wins": [stats["wins"][p] for p in range(4)],
             "elapsed_s": round(elapsed_s, 3),
             "s_per_deal": round(elapsed_s / played, 6) if played else None,
+            "stopped": bool(stats.get("stopped")),
+            "requested_n": stats.get("requested_n", played),
         })
 
     def write_error(self, message: str) -> None:

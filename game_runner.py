@@ -6,6 +6,7 @@ Uruchamia pojedynczą grę lub serię gier z dowolnymi agentami.
 
 from __future__ import annotations
 import random
+import time
 from collections.abc import Callable
 from typing import Sequence
 
@@ -118,6 +119,26 @@ def run_game(
     return result
 
 
+def _progress_tick(done: int, n: int) -> bool:
+    """Pierwsze 100 partii co 10, potem co 100; zawsze ostatnia."""
+    if done >= n:
+        return True
+    if done <= 100:
+        return done % 10 == 0
+    return done % 100 == 0
+
+
+def _fmt_duration(seconds: float) -> str:
+    s = max(0, int(round(seconds)))
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    if h:
+        return f"{h}h {m:02d}m"
+    if m:
+        return f"{m}m {s:02d}s"
+    return f"{s}s"
+
+
 def run_many_games(
     agents: dict[int, Agent],
     n: int,
@@ -127,6 +148,7 @@ def run_many_games(
     progress: bool = False,
     on_progress: Callable[[int, int, dict], None] | None = None,
     on_game: Callable[[int, dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict:
     """
     Rozgrywa n partii i zbiera statystyki.
@@ -138,10 +160,12 @@ def run_many_games(
         'n'             - liczba rozegranych gier
         'results'       - tylko gdy keep_results=True (lista wyników każdej gry)
 
-    progress=True → ~100 aktualizacji na stderr (koszt znikomy nawet przy milionie gier).
-    on_progress(done, n, stats) → te same ~100 ticków; stats ma avg_score / wins / total_score
-    (średnie liczone z gier do tej pory, nie z pełnego n).
+    progress=True → ticki na stderr: pierwsze 100 partii co 10, potem co 100.
+    on_progress(done, n, stats) → te same ticki; stats ma avg_score / wins / total_score
+    oraz elapsed_s / eta_s / eta_text (średnie z gier do tej pory, nie z pełnego n).
     on_game(game_index, result) → po każdej partii (game_index od 1); do zapisu na dysk.
+    should_stop() → True przerywa pętlę po bieżącej partii; zwracane n to liczba
+    rozegranych gier, stopped=True.
 
     Każda partia tasuje obsadę stołu (kto koło kogo). first_player i tak jest losowy.
     Statystyki i log są w kolejności oryginalnych kluczy agents (Gracz 0..3 z GUI).
@@ -150,10 +174,41 @@ def run_many_games(
     results = [] if keep_results else None
     total_score = {p: 0 for p in range(4)}
     wins = {p: 0 for p in range(4)}
-    # co najwyżej ~100 printów / callbacków; przy małych n — co grę
-    report_every = max(1, n // 100) if (progress or on_progress) else 0
+    want_progress = bool(progress or on_progress)
+    t0 = time.perf_counter()
+    played = 0
+    last_reported = 0
+
+    def emit_progress(done: int, *, stopped: bool = False) -> None:
+        nonlocal last_reported
+        last_reported = done
+        elapsed = time.perf_counter() - t0
+        eta_s = elapsed * (n - done) / done if done and done < n and not stopped else None
+        if stopped:
+            eta_text = f"zatrzymano  czas {_fmt_duration(elapsed)}"
+        elif done >= n:
+            eta_text = f"czas {_fmt_duration(elapsed)}"
+        elif eta_s is None:
+            eta_text = ""
+        else:
+            eta_text = f"pozostało ~{_fmt_duration(eta_s)}"
+        if progress:
+            pct = 100.0 * done / n if n else 100.0
+            extra = f"  {eta_text}" if eta_text else ""
+            print(f"\r  postęp: {done}/{n} ({pct:.0f}%){extra}", end="", flush=True)
+        if on_progress:
+            on_progress(done, n, {
+                "avg_score": {p: total_score[p] / done for p in range(4)},
+                "total_score": dict(total_score),
+                "wins": dict(wins),
+                "elapsed_s": elapsed,
+                "eta_s": eta_s,
+                "eta_text": eta_text,
+            })
 
     for i in range(n):
+        if should_stop is not None and should_stop():
+            break
         if ls:
             notify(ls, "on_series_game_start", SeriesGameStartEvent(
                 game_index=i + 1,
@@ -184,29 +239,37 @@ def run_many_games(
         for p in r["winners"]:
             wins[p] += 1
 
-        if report_every and ((i + 1) % report_every == 0 or i + 1 == n or i == 0):
-            done = i + 1
-            if progress:
-                pct = 100.0 * done / n
-                print(f"\r  postęp: {done}/{n} ({pct:.0f}%)", end="", flush=True)
-            if on_progress:
-                on_progress(done, n, {
-                    "avg_score": {p: total_score[p] / done for p in range(4)},
-                    "total_score": dict(total_score),
-                    "wins": dict(wins),
-                })
+        played = i + 1
+        if want_progress and _progress_tick(played, n):
+            emit_progress(played)
 
-    if progress and report_every:
+    stopped = played < n
+    elapsed = time.perf_counter() - t0
+    if want_progress and played and (stopped or last_reported != played):
+        emit_progress(played, stopped=stopped)
+    if progress and want_progress:
         print()
 
     out = {
-        "avg_score": {p: total_score[p] / n for p in range(4)},
+        "avg_score": {
+            p: (total_score[p] / played if played else 0.0) for p in range(4)
+        },
         "total_score": total_score,
         "wins": wins,
-        "n": n,
+        "n": played,
+        "requested_n": n,
+        "stopped": stopped,
+        "elapsed_s": elapsed,
     }
     if results is not None:
         out["results"] = results
+    if progress or on_progress:
+        avgs = " ".join(f"{out['avg_score'][p]:+.3f}" for p in range(4))
+        kind = "zatrzymano" if stopped else "koniec"
+        print(
+            f"  {kind}: {played}/{n}  avg {avgs}  czas {_fmt_duration(elapsed)}",
+            flush=True,
+        )
     return out
 
 

@@ -11,7 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from game_runner import list_agent_names, make_agents, run_many_games
+from game_runner import _fmt_duration, list_agent_names, make_agents, run_many_games
 from run_log import RunLog
 
 PIMC_SAMPLE_CHOICES = ("32", "64", "128", "256", "512", "1024")
@@ -32,9 +32,10 @@ def main() -> None:
     root.geometry("560x280")
 
     q: queue.Queue = queue.Queue()
-    running = {"on": False}
+    running = {"on": False, "stop": threading.Event()}
     font_px = [0]
     style = ttk.Style(root)
+    btns: dict[str, tk.Button] = {}
 
     player_vars: list[tk.StringVar] = []
     sample_vars: list[tk.StringVar] = []
@@ -113,7 +114,15 @@ def main() -> None:
 
     def set_running(on: bool) -> None:
         running["on"] = on
-        start_btn.config(state="disabled" if on else "normal")
+        btns["start"].config(state="disabled" if on else "normal")
+        btns["stop"].config(state="normal" if on else "disabled")
+
+    def stop() -> None:
+        if not running["on"]:
+            return
+        running["stop"].set()
+        btns["stop"].config(state="disabled")
+        status.config(text="Zatrzymywanie po bieżącej partii...")
 
     def start() -> None:
         if running["on"]:
@@ -151,6 +160,7 @@ def main() -> None:
             lbl.config(text="—")
         bar.config(maximum=n, value=0)
         status.config(text="")
+        running["stop"] = threading.Event()
         set_running(True)
 
         def worker() -> None:
@@ -166,18 +176,22 @@ def main() -> None:
                     )
 
                 def on_progress(done: int, total: int, stats: dict) -> None:
-                    q.put(("progress", done, total, stats["avg_score"]))
+                    q.put(("progress", done, total, stats))
 
                 def on_game(game_index: int, result: dict) -> None:
                     if log is not None:
                         log.write_game(game_index, result)
 
                 stats = run_many_games(
-                    agents, n=n, on_progress=on_progress, on_game=on_game if save else None,
+                    agents,
+                    n=n,
+                    on_progress=on_progress,
+                    on_game=on_game if save else None,
+                    should_stop=running["stop"].is_set,
                 )
                 if log is not None:
                     log.write_summary(stats, played=stats["n"])
-                q.put(("done",))
+                q.put(("done", stats))
             except Exception as e:
                 if log is not None:
                     try:
@@ -191,8 +205,14 @@ def main() -> None:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    start_btn = add_font(tk.Button(root, text="Start", command=start))
-    start_btn.grid(row=7, column=0, columnspan=4, sticky="ew", padx=10, pady=(4, 10))
+    btn_row = tk.Frame(root)
+    btn_row.grid(row=7, column=0, columnspan=4, sticky="ew", padx=10, pady=(4, 10))
+    btn_row.columnconfigure(0, weight=1)
+    btn_row.columnconfigure(1, weight=1)
+    btns["start"] = add_font(tk.Button(btn_row, text="Start", command=start))
+    btns["start"].grid(row=0, column=0, sticky="ew", padx=(0, 4))
+    btns["stop"] = add_font(tk.Button(btn_row, text="Stop", command=stop, state="disabled"))
+    btns["stop"].grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
     def apply_font(px: int) -> None:
         font = ("Segoe UI", px)
@@ -220,12 +240,31 @@ def main() -> None:
                 item = q.get_nowait()
                 kind = item[0]
                 if kind == "progress":
-                    _, done, total, avg = item
+                    _, done, total, stats = item
                     bar.config(maximum=total, value=done)
+                    avg = stats["avg_score"]
                     for p in range(4):
                         avg_labels[p].config(text=f"{avg[p]:+.3f}")
+                    extra = stats.get("eta_text") or ""
+                    status.config(text=f"{done}/{total}  {extra}".rstrip())
                 elif kind == "done":
+                    stats = item[1] if len(item) > 1 else {}
                     set_running(False)
+                    played = stats.get("n", 0)
+                    total = stats.get("requested_n", played)
+                    extra = stats.get("eta_text") or ""
+                    if "elapsed_s" in stats:
+                        kind_txt = "zatrzymano" if stats.get("stopped") else "koniec"
+                        extra = (
+                            f"{kind_txt}  czas {_fmt_duration(stats['elapsed_s'])}"
+                        )
+                    if played:
+                        bar.config(maximum=total, value=played)
+                        avg = stats.get("avg_score", {})
+                        for p in range(4):
+                            if p in avg:
+                                avg_labels[p].config(text=f"{avg[p]:+.3f}")
+                    status.config(text=f"{played}/{total}  {extra}".rstrip())
                 elif kind == "error":
                     status.config(text=item[1])
                     set_running(False)
