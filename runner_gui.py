@@ -31,6 +31,7 @@ def main() -> None:
     player_vars: list[tk.StringVar] = []
     avg_labels: list[tk.Label] = []
     font_widgets: list[tk.Widget] = []
+    menus: list[tk.Menu] = []
 
     def add_font(w: tk.Widget) -> tk.Widget:
         font_widgets.append(w)
@@ -41,13 +42,9 @@ def main() -> None:
         row.pack(fill="x", padx=6, pady=2)
         add_font(tk.Label(row, text=f"Gracz {i}")).pack(side="left")
         var = tk.StringVar(value=default)
-        cb = ttk.Combobox(
-            row,
-            textvariable=var,
-            values=agent_names,
-            state="readonly",
-        )
-        cb.pack(side="left", fill="x", expand=True, padx=6)
+        om = add_font(tk.OptionMenu(row, var, *agent_names))
+        om.pack(side="left", fill="x", expand=True, padx=6)
+        menus.append(om["menu"])
         avg = add_font(tk.Label(row, text="—", width=10, anchor="e"))
         avg.pack(side="right")
         player_vars.append(var)
@@ -88,7 +85,7 @@ def main() -> None:
         for lbl in avg_labels:
             lbl.config(text="—")
         bar.config(maximum=n, value=0)
-        status.config(text=f"0/{n}")
+        status.config(text="")
         set_running(True)
 
         def worker() -> None:
@@ -112,9 +109,9 @@ def main() -> None:
         font = ("Segoe UI", px)
         for w in font_widgets:
             w.configure(font=font)
-        style.configure("TCombobox", font=font)
+        for menu in menus:
+            menu.configure(font=font)
         style.configure("TProgressbar", thickness=max(10, int(px * 1.8)))
-        root.option_add("*TCombobox*Listbox.Font", font)
 
     def on_resize(event: tk.Event) -> None:
         if event.widget is not root:
@@ -135,7 +132,6 @@ def main() -> None:
                 if kind == "progress":
                     _, done, total, avg = item
                     bar.config(maximum=total, value=done)
-                    status.config(text=f"{done}/{total}")
                     for p in range(4):
                         avg_labels[p].config(text=f"{avg[p]:+.3f}")
                 elif kind == "done":
